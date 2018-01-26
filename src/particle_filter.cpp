@@ -209,6 +209,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	double toy = 0;
 
 	double weight_sum = 0;
+	vector<double> weights_buf;
+	int landmarks_observable_from_particle = 0;
 	for (int i = 0; i < num_particles; ++i)
 	{
 		Particle& particle = particles[i];
@@ -241,6 +243,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 		// Update weight for each particle
 		double weight = 1.0;
+		bool is_any_observation_associated = false;
 		vector<int> associations;
 		vector<double> sense_x;
 		vector<double> sense_y;
@@ -257,30 +260,40 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 				sense_y.push_back(observation.y);
 
 				weight *= gauss2d(pred.x, observation.x, std_landmark[0], pred.y, observation.y, std_landmark[1]);
+				is_any_observation_associated = true;
 			}
 		}
 
-		weight_sum += weight;
+		// Probably no any landmarks exists nearby, so minimal weight must be assigned
+		if (is_any_observation_associated)
+		{
+			++landmarks_observable_from_particle;
+		}
+		else
+		{
+			weight = gauss2d(sensor_range, 0, std_landmark[0], sensor_range, 0, std_landmark[1]);
+		}
 
-		particle.weight = weight;
+		weight_sum += weight;
+		weights_buf.push_back(weight);
 
 		// Set output data for simulator
 		SetAssociations(particle, associations, sense_x, sense_y);
 	}
 
-	// Normalize weights
+	// If 70% or more of particles don't see any landmarks, it makes sense skip weights update
+	if ((weight_sum <= 0) ||
+		((double)landmarks_observable_from_particle / double(num_particles)) < 0.3)
+	{
+		return;
+	}
+
+	// Assign new weights and normalize it (optional)
 	for (int i = 0; i < num_particles; ++i)
 	{
 		Particle& particle = particles[i];
 
-		if (weight_sum > 0)
-		{
-			particle.weight /= weight_sum;
-		}
-		else
-		{
-			particle.weight = 1.0;
-		}
+		particle.weight = weights_buf[i] / weight_sum;
 	}
 }
 
